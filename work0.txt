@@ -1,0 +1,77 @@
+/*
+ * GccApplication1.c
+ *
+ * Created: 10/15/2018 11:49:12 AM
+ * Author : bryant
+ */ 
+
+#include "sam.h"
+
+void clockSetup(void);
+void portSetup(void);
+void wait(volatile int d);
+void sercom_0_Setup(void);
+
+int main(void){
+
+    SystemInit();	//Initialize the SAM system
+	clockSetup();
+	portSetup();
+	sercom_0_Setup();
+
+	
+    while(1){
+			Port *por = PORT;
+			PortGroup *porA = &(por->Group[0]);
+			PortGroup *porB = &(por->Group[1]);
+			PortGroup *porC = &(por->Group[2]);
+			PortGroup *porD = &(por->Group[3]);
+			
+			porA->DIRSET.reg = PORT_PA06;	//output
+			porA->OUTTGL.reg = PORT_PA06;
+			wait(10);
+	}
+}
+
+void clockSetup(void){
+	//12MHz crystal on board selected mapped to PB22/PB23
+	OSCCTRL->XOSCCTRL[1].bit.ENALC = 1;	//enables auto loop ctrl to control amp of osc
+	OSCCTRL->XOSCCTRL[1].bit.IMULT = 4;
+	OSCCTRL->XOSCCTRL[1].bit.IPTAT = 3;
+	OSCCTRL->XOSCCTRL[1].bit.ONDEMAND = 1;
+	OSCCTRL->XOSCCTRL[1].bit.RUNSTDBY = 1;
+	OSCCTRL->XOSCCTRL[1].bit.XTALEN = 1;	//select ext crystal osc mode
+	OSCCTRL->XOSCCTRL[1].bit.ENABLE = 1;
+	
+	GCLK->GENCTRL[0].reg = GCLK_GENCTRL_SRC_XOSC1 | GCLK_GENCTRL_RUNSTDBY | !(GCLK_GENCTRL_DIVSEL) | GCLK_GENCTRL_OE | GCLK_GENCTRL_GENEN | 12<<16;	//divide by 12
+	while(GCLK->SYNCBUSY.bit.GENCTRL0){}	//wait for sync
+	
+	//channel 7, SERCOM0
+	GCLK->PCHCTRL[7].bit.CHEN = 0;	//disable for safety first
+	GCLK->PCHCTRL[7].reg = GCLK_PCHCTRL_CHEN | GCLK_PCHCTRL_GEN_GCLK0;
+	
+	MCLK->CPUDIV.reg = 1;	//divide by 1
+	MCLK->APBAMASK.reg |= MCLK_APBAMASK_SERCOM0;	//do not mask sercom0
+	
+}
+
+void portSetup(void){
+	Port *por = PORT;
+	PortGroup *porA = &(por->Group[0]);
+	PortGroup *porB = &(por->Group[1]);
+	PortGroup *porC = &(por->Group[2]);
+	PortGroup *porD = &(por->Group[3]);
+
+}
+
+void sercom_0_Setup(void){
+	
+}
+
+void wait(volatile int d){
+	int count = 0;
+	while (count < d*1000){
+		count++;
+	}
+}
+
