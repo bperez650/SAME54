@@ -11,6 +11,11 @@ void clockSetup(void);
 void portSetup(void);
 void wait(volatile int d);
 void sercom_0_Setup(void);
+void writeUart(char *a);
+
+volatile char menuArray[100] = {"\n\nARTIUM TECH Rev 0\nDIGITAL DxX X=H/L\nANALOG AyYY\nMORE STUFF...\n"};
+volatile char *menuPtr;
+
 
 int main(void){
 
@@ -18,7 +23,11 @@ int main(void){
 	clockSetup();
 	portSetup();
 	sercom_0_Setup();
+	
 
+	//writeUart("hi bith");
+	//menuPtr = menuArray;
+	//writeUart(menuPtr);
 	
     while(1){
 			Port *por = PORT;
@@ -27,9 +36,14 @@ int main(void){
 			PortGroup *porC = &(por->Group[2]);
 			PortGroup *porD = &(por->Group[3]);
 			
-			porA->DIRSET.reg = PORT_PA06;	//output
-			porA->OUTTGL.reg = PORT_PA06;
-			wait(10);
+
+			//for testing
+			
+			//porA->DIRSET.reg = PORT_PA06;	//output
+			//porA->OUTTGL.reg = PORT_PA06;
+			//wait(100);
+
+
 	}
 }
 
@@ -43,7 +57,7 @@ void clockSetup(void){
 	OSCCTRL->XOSCCTRL[1].bit.XTALEN = 1;	//select ext crystal osc mode
 	OSCCTRL->XOSCCTRL[1].bit.ENABLE = 1;
 	
-	GCLK->GENCTRL[0].reg = GCLK_GENCTRL_SRC_XOSC1 | GCLK_GENCTRL_RUNSTDBY | !(GCLK_GENCTRL_DIVSEL) | GCLK_GENCTRL_OE | GCLK_GENCTRL_GENEN | 12<<16;	//divide by 12
+	GCLK->GENCTRL[0].reg = GCLK_GENCTRL_SRC_XOSC1 | GCLK_GENCTRL_RUNSTDBY | !(GCLK_GENCTRL_DIVSEL) | GCLK_GENCTRL_OE | GCLK_GENCTRL_GENEN | 12<<16;	//divide by 12 1MHz
 	while(GCLK->SYNCBUSY.bit.GENCTRL0){}	//wait for sync
 	
 	//channel 7, SERCOM0
@@ -61,11 +75,64 @@ void portSetup(void){
 	PortGroup *porB = &(por->Group[1]);
 	PortGroup *porC = &(por->Group[2]);
 	PortGroup *porD = &(por->Group[3]);
+	
+	///for SERCOM0
+	porA->PMUX[2].bit.PMUXE = 3;
+	porA->PINCFG[4].bit.PMUXEN = 1;
+	porA->PMUX[2].bit.PMUXO = 3;
+	porA->PINCFG[5].bit.PMUXEN = 1;
 
 }
 
 void sercom_0_Setup(void){
-	
+	Sercom *ser = SERCOM0;
+	SercomUsart *uart = &(ser->USART);
+	uart->CTRLA.reg = 0;	//enable protected regs
+	while(uart->SYNCBUSY.reg){}
+	uart->CTRLA.bit.DORD = 1;	//LSB transferred first
+	uart->CTRLA.bit.CMODE = 0;	//asynchronous mode
+	uart->CTRLA.bit.SAMPR = 0;	//16x oversampling using arithmetic
+	uart->CTRLA.bit.RXPO = 1;	//RX is pad1 PA05
+	uart->CTRLA.bit.TXPO = 2;	//TX is pad0 PA04
+	uart->CTRLA.bit.MODE = 1;	//uart with internal clock
+	uart->CTRLB.bit.RXEN = 1;	//enable RX
+	uart->CTRLB.bit.TXEN = 1;	//enable TX
+	uart->CTRLB.bit.PMODE = 0;	//even parity mode
+	uart->CTRLB.bit.SBMODE = 0;	//1 stop bit
+	uart->CTRLB.bit.CHSIZE = 0;	//8bit char size
+	while(uart->SYNCBUSY.reg){}
+	uart->BAUD.reg = 55470;	//for fbaud 9600 at 1Mhz fref
+	uart->INTENSET.bit.RXC = 1;	//receive complete interr
+	NVIC->ISER[1] |= 1<<16;	//enable sercom0 int
+	uart->CTRLA.reg |= 1<<1;	//enable
+	while(uart->SYNCBUSY.reg){}
+	//NVIC->ISER[1] = NVIC_EnableIRQ
+}
+
+void SERCOM0_2_Handler(void){	//for recieving
+	Sercom *ser = SERCOM0;
+	SercomUsart *uart = &(ser->USART);
+	volatile char receiveChar = uart->DATA.reg;
+	menuPtr = menuArray;
+	if((receiveChar == 'm') || (receiveChar == 'M')){
+		writeUart(menuPtr);
+	}
+	else if((receiveChar == 'd') || (receiveChar == 'D')){
+		writeUart("\n\ndigi\n");
+	}
+	else if((receiveChar == 'a') || (receiveChar == 'A')){
+		writeUart("\n\nana\n");
+	}
+}
+
+void writeUart(char *a){
+	Sercom *ser = SERCOM0;
+	SercomUsart *uart = &(ser->USART);
+	while(*a){
+		while(!(uart->INTFLAG.bit.DRE)){}
+		uart->DATA.reg = *a++;
+		while((uart->INTFLAG.bit.TXC)==0){}	// waiting for transmit to complete
+	}
 }
 
 void wait(volatile int d){
