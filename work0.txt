@@ -7,6 +7,12 @@
 
 #include "sam.h"
 
+#define D00 PORT_PB26
+#define D01 PORT_PB27
+#define D02 PORT_PB28
+#define D03 PORT_PB29
+
+
 void clockSetup(void);
 void portSetup(void);
 void wait(volatile int d);
@@ -15,8 +21,13 @@ void writeUart(char *a);
 
 volatile char menuArray[100] = {"\n\nARTIUM TECH Rev 0\nDIGITAL DxX X=H/L\nANALOG AyYY\nMORE STUFF...\n"};
 volatile char *menuPtr;
+volatile int receiveCount = 0;	//receive array counter
+volatile char receiveArray[10] = {"0000000000"};
+volatile char receiveKey;
+volatile char *arrayPtr;
+volatile int state = 0;
 
-
+	
 int main(void){
 
     SystemInit();	//Initialize the SAM system
@@ -24,26 +35,107 @@ int main(void){
 	portSetup();
 	sercom_0_Setup();
 	
-
-	//writeUart("hi bith");
-	//menuPtr = menuArray;
-	//writeUart(menuPtr);
+	Port *por = PORT;
+	PortGroup *porB = &(por->Group[1]);
+	arrayPtr = receiveArray;
+	menuPtr = menuArray;
+	while(1){	
 	
-    while(1){
-			Port *por = PORT;
-			PortGroup *porA = &(por->Group[0]);
-			PortGroup *porB = &(por->Group[1]);
-			PortGroup *porC = &(por->Group[2]);
-			PortGroup *porD = &(por->Group[3]);
+		if(receiveKey == 13){	//look for carriage return
+		
+			if(((*arrayPtr+0 == 'm') || (*arrayPtr+0 == 'M')) && (receiveCount = 1)){	//verifying valid menu selection
+				writeUart(menuPtr);
+				receiveCount = 0;
+				receiveKey = 0;
+			}
+			else if(((*arrayPtr+0 == 'd') || (*arrayPtr+0 == 'D')) && (receiveCount = 4)){	//verifying valid input for digital
+				writeUart("\n\ndigi\n");
+				receiveCount = 0;
+				receiveKey = 0;
 			
-
-			//for testing
+				if((*(arrayPtr+1) >= 48) && (*(arrayPtr+1) <= 57)){	//looking for number keys only
+					if((*(arrayPtr+2) >= 48) && (*(arrayPtr+2) <= 57)){	//looking for number keys only
+					volatile int zone = (*(arrayPtr+1) - 48) * 10;
+					zone += *(arrayPtr+2) - 48;
 			
-			//porA->DIRSET.reg = PORT_PA06;	//output
-			//porA->OUTTGL.reg = PORT_PA06;
-			//wait(100);
-
-
+						switch(zone){
+							case 0:
+							if(*(arrayPtr+3) == 'L' || *(arrayPtr+3) == 'l'){
+							porB->OUTCLR.reg = D00;
+							}
+							else if(*(arrayPtr+3) == 'H' || *(arrayPtr+3) == 'h'){
+							porB->OUTSET.reg = D00;
+							}
+							break;
+					
+							case 1:
+							if(*(arrayPtr+3) == 'L' || *(arrayPtr+3) == 'l'){
+							porB->OUTCLR.reg = D01;
+							}
+							else if(*(arrayPtr+3) == 'H' || *(arrayPtr+3) == 'h'){
+							porB->OUTSET.reg = D01;
+							}
+							break;
+					
+							case 2:
+							if(*(arrayPtr+3) == 'L' || *(arrayPtr+3) == 'l'){
+							porB->OUTCLR.reg = D02;
+							}
+							else if(*(arrayPtr+3) == 'H' || *(arrayPtr+3) == 'h'){
+							porB->OUTSET.reg = D02;
+							}
+							break;
+					
+							case 3:
+							if(*(arrayPtr+3) == 'L' || *(arrayPtr+3) == 'l'){
+							porB->OUTCLR.reg = D03;
+							}
+							else if(*(arrayPtr+3) == 'H' || *(arrayPtr+3) == 'h'){
+							porB->OUTSET.reg = D03;
+							}
+							break;
+					
+							case 4:
+							break;
+							case 5:
+							break;
+							case 6:
+							break;
+							case 7:
+							break;
+							case 8:
+							break;
+							case 9:
+							break;
+							case 10:
+							break;
+							case 11:
+							break;
+							case 12:
+							break;
+							case 13:
+							break;
+							case 14:
+							break;
+							case 15:
+							break;
+					
+							default:
+							break;
+						}
+					}
+				}
+			}
+		
+			//else if((receiveChar == 'a') || (receiveChar == 'A')){	//analog stuff
+			//writeUart("\n\nana\n");
+			//}
+		
+			else{	//invalid key press, reset array 
+				receiveCount = 0;
+				receiveKey = 0;
+			}
+		}
 	}
 }
 
@@ -82,6 +174,7 @@ void portSetup(void){
 	porA->PMUX[2].bit.PMUXO = 3;
 	porA->PINCFG[5].bit.PMUXEN = 1;
 
+	porB->DIRSET.reg = D00 | D01 | D02 | D03;	//digital outputs
 }
 
 void sercom_0_Setup(void){
@@ -109,20 +202,14 @@ void sercom_0_Setup(void){
 	//NVIC->ISER[1] = NVIC_EnableIRQ
 }
 
-void SERCOM0_2_Handler(void){	//for recieving
+void SERCOM0_2_Handler(void){	//for recieving 
 	Sercom *ser = SERCOM0;
 	SercomUsart *uart = &(ser->USART);
-	volatile char receiveChar = uart->DATA.reg;
-	menuPtr = menuArray;
-	if((receiveChar == 'm') || (receiveChar == 'M')){
-		writeUart(menuPtr);
+	receiveKey = uart->DATA.reg;
+	if(receiveKey != 13){
+		receiveArray[receiveCount++] = receiveKey;
 	}
-	else if((receiveChar == 'd') || (receiveChar == 'D')){
-		writeUart("\n\ndigi\n");
-	}
-	else if((receiveChar == 'a') || (receiveChar == 'A')){
-		writeUart("\n\nana\n");
-	}
+
 }
 
 void writeUart(char *a){
