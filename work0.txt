@@ -19,7 +19,15 @@ void wait(volatile int d);
 void sercom_0_Setup(void);
 void writeUart(char *a);
 
-volatile char menuArray[100] = {"\n\nARTIUM TECH Rev 0\nDIGITAL DxX X=H/L\nANALOG AyYY\nMORE STUFF...\n"};
+volatile char menuArray[7][63] = {	//DO NOT FUCK WITH THIS 
+									{"\n\n_________________________________________________________  \n\n"},
+									{"                Artium Technologies, Inc Gen 3.0 Rev 0.0      \n"},
+									{"_________________________________________________________    \n\n"},
+									{"M=> Show Menu                                                 \n"},
+									{"DxXXX D=Analog Out x=Cannel Number 0 to 15 XXX=000 to 255     \n"},
+									{"KxXX K=Port K x-Bit 0 to 15 X= State H or L                   \n"},
+									{"T=> Show Current Temperature Status\n\n#                        "},
+									};//DO NOT FUCK WITH THIS 
 volatile char *menuPtr;
 volatile int receiveCount = 0;	//receive array counter
 volatile char receiveArray[10] = {"0000000000"};
@@ -215,7 +223,7 @@ void SERCOM0_2_Handler(void){	//for recieving
 void writeUart(char *a){
 	Sercom *ser = SERCOM0;
 	SercomUsart *uart = &(ser->USART);
-	while(*a){
+	while(*a != '#'){
 		while(!(uart->INTFLAG.bit.DRE)){}
 		uart->DATA.reg = *a++;
 		while((uart->INTFLAG.bit.TXC)==0){}	// waiting for transmit to complete
