@@ -12,8 +12,8 @@
 #define D02 PORT_PB28
 #define D03 PORT_PB29
 
-#define SS0 PORT_PC07
-//#define SS1 PORT_P
+#define SS0 PORT_PC07	
+//#define SS1 PORT_PB00
 
 
 void clockSetup(void);
@@ -33,7 +33,7 @@ volatile char menuArray[7][63] = {	//DO NOT FUCK WITH THIS
 									{"_________________________________________________________    \n\n"},
 									{"M=> Show Menu                                                 \n"},
 									{"DxxXXX D=Analog Out x=Cannel Number 0 to 15 XXX=000 to 255    \n"},
-									{"KxxX K=Port K x-Bit 0 to 15 X= State H or L                   \n"},
+									{"KxxX K=Port K xx-Bit 0 to 15 X= State H or L                  \n"},
 									{"T=> Show Current Temperature Status\n\n#                        "},
 									};//DO NOT FUCK WITH THIS 
 volatile char *menuPtr;
@@ -48,16 +48,21 @@ volatile int slaveSel;
 	
 int main(void){
 
-    SystemInit();	//Initialize the SAM system
+    SystemInit();	//Initializme the SAM system
 	clockSetup();
 	portSetup();
 	sercom_0_Setup();	//USART
 	sercom_6_Setup();	//SPI
-
+	
+	volatile char startArr[] = "\nStart\nm#";
+	volatile char *startPtr;
+	startPtr = startArr;
+	writeUart(startPtr);
 
 	arrayPtr = receiveArray;
 	menuPtr = menuArray;
 	arrDACptr = arrDAC;
+	
 	
 	while(1){	
 	
@@ -135,9 +140,9 @@ void portSetup(void){
 	porC->PINCFG[5].bit.PMUXEN = 1;
 	porC->PINCFG[6].bit.PMUXEN = 1;
 	porC->DIRSET.reg |= PORT_PC07;	//SS0 for 1st DAC
-	//porC->DIRSET.reg |= PORT_PC07;	//SS1 for 2nd DAC
+	porC->DIRSET.reg |= PORT_PB00;	//SS1 for 2nd DAC
 	porC->OUTSET.reg |= PORT_PC07;	//initialize SS0 high
-	//porC->OUTSET.reg |= PORT_PC07	//initialize SS1 high
+	porC->OUTSET.reg |= PORT_PB00;	//initialize SS1 high
 	
 	porB->DIRSET.reg = D00 | D01 | D02 | D03;	//digital outputs
 }
@@ -208,13 +213,13 @@ void SERCOM0_2_Handler(void){	//for recieving
 void writeUart(char *a){
 	Sercom *ser = SERCOM0;
 	SercomUsart *uart = &(ser->USART);
-	if(receiveCount == 1){
+	//if(receiveCount == 1){
 		while(*a != '#'){
 			while(!(uart->INTFLAG.bit.DRE)){}
 			uart->DATA.reg = *a++;
 			while((uart->INTFLAG.bit.TXC)==0){}	// waiting for transmit to complete
 		}
-	}
+	//}
 	
 	//if((receiveCount == 4) || (receiveCount == 5)){
 		//volatile int j = receiveCount;
@@ -315,11 +320,11 @@ void dacSelect(void){
 			volatile int zone = (*(arrayPtr+1) - 48) * 10;
 			zone += *(arrayPtr+2) - 48;
 			if(zone <= 7){
-				arrDAC[0] = 2 * zone;
+				arrDAC[0] = 2 * zone;	// 2 * zone is to accomodate TLV only
 				slaveSel = 0;
 			}
 			else{
-				arrDAC[0]= 2 * (zone - 8);
+				arrDAC[0]= 2 * (zone - 8);	// 2 * zone is to accomodate TLV only
 				slaveSel = 1;
 			}
 			dacValue();
@@ -349,16 +354,14 @@ void writeSPI(char *a){
 	volatile static int j = 0;	//counter
 	Sercom *ser = SERCOM6;
 	SercomSpi *spi = &(ser->SPI);
+	Port *por = PORT;
+	PortGroup *porB = &(por->Group[1]);
+	PortGroup *porC = &(por->Group[2]);
 	
-	if(slaveSel == 0){
-		//SS = SS0;
-	}
-	else if(slaveSel == 1){
-		//SS = SS1;
-	}
 	while( j<2 ){
+		
 		spi->DATA.reg = arrDAC[j];
-		//spi->DATA.reg = 0xab;
+		//spi->DATA.reg = 0xab;	//test
 		while(spi->INTFLAG.bit.DRE == 0){}	//wait for DATA reg to be empty
 		while(spi->INTFLAG.bit.TXC == 0){}	//wait for tx to finish
 		j++;	//increment counter
@@ -370,6 +373,18 @@ void writeSPI(char *a){
 			//wait(1);
 			//porA->OUTSET.reg = SS;	//pull SS up
 		//}
+	}
+	wait(1);
+	////// pulse SS (load) to clk data into dacs for TLV only
+	if(slaveSel == 0){	
+		porC->OUTCLR.reg = SS0;
+		//wait(1);
+		porC->OUTSET.reg = SS0;
+	}
+	else if(slaveSel == 1){
+		porB->OUTCLR.reg = SS0;
+		//wait(1);
+		porB->OUTSET.reg = SS0;
 	}
 	j = 0;
 }
