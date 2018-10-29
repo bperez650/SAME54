@@ -12,20 +12,28 @@
 #define D02 PORT_PB28
 #define D03 PORT_PB29
 
+#define SS0 PORT_PC07
+//#define SS1 PORT_P
+
 
 void clockSetup(void);
 void portSetup(void);
 void wait(volatile int d);
-void sercom_0_Setup(void);
+void sercom_0_Setup(void);	//USART
+void sercom_6_Setup(void);	//SPI
 void writeUart(char *a);
+void portControl(void);
+void dacSelect(void);
+void dacValue(void);
+void writeSPI(char *a);
 
 volatile char menuArray[7][63] = {	//DO NOT FUCK WITH THIS 
 									{"\n\n_________________________________________________________  \n\n"},
 									{"                Artium Technologies, Inc Gen 3.0 Rev 0.0      \n"},
 									{"_________________________________________________________    \n\n"},
 									{"M=> Show Menu                                                 \n"},
-									{"DxXXX D=Analog Out x=Cannel Number 0 to 15 XXX=000 to 255     \n"},
-									{"KxXX K=Port K x-Bit 0 to 15 X= State H or L                   \n"},
+									{"DxxXXX D=Analog Out x=Cannel Number 0 to 15 XXX=000 to 255    \n"},
+									{"KxxX K=Port K x-Bit 0 to 15 X= State H or L                   \n"},
 									{"T=> Show Current Temperature Status\n\n#                        "},
 									};//DO NOT FUCK WITH THIS 
 volatile char *menuPtr;
@@ -34,110 +42,45 @@ volatile char receiveArray[10] = {"0000000000"};
 volatile char receiveKey;
 volatile char *arrayPtr;
 volatile int state = 0;
-
+volatile char arrDAC[2];
+volatile char *arrDACptr;
+volatile int slaveSel;
 	
 int main(void){
 
     SystemInit();	//Initialize the SAM system
 	clockSetup();
 	portSetup();
-	sercom_0_Setup();
-	
-	Port *por = PORT;
-	PortGroup *porB = &(por->Group[1]);
+	sercom_0_Setup();	//USART
+	sercom_6_Setup();	//SPI
+
+
 	arrayPtr = receiveArray;
 	menuPtr = menuArray;
+	arrDACptr = arrDAC;
+	
 	while(1){	
 	
 		if(receiveKey == 13){	//look for carriage return
 		
-			if(((*arrayPtr+0 == 'm') || (*arrayPtr+0 == 'M')) && (receiveCount = 1)){	//verifying valid menu selection
+			if(((*arrayPtr == 'm') || (*arrayPtr == 'M')) && (receiveCount = 1)){	//verifying valid menu selection
 				writeUart(menuPtr);
 				receiveCount = 0;
 				receiveKey = 0;
 			}
-			else if(((*arrayPtr+0 == 'd') || (*arrayPtr+0 == 'D')) && (receiveCount = 4)){	//verifying valid input for digital
-				writeUart("\n\ndigi\n");
+			else if(((*arrayPtr == 'k') || (*arrayPtr == 'K')) && (receiveCount = 4)){	//verifying valid input for digital
+				//writeUart(arrayPtr);
 				receiveCount = 0;
 				receiveKey = 0;
-			
-				if((*(arrayPtr+1) >= 48) && (*(arrayPtr+1) <= 57)){	//looking for number keys only
-					if((*(arrayPtr+2) >= 48) && (*(arrayPtr+2) <= 57)){	//looking for number keys only
-					volatile int zone = (*(arrayPtr+1) - 48) * 10;
-					zone += *(arrayPtr+2) - 48;
-			
-						switch(zone){
-							case 0:
-							if(*(arrayPtr+3) == 'L' || *(arrayPtr+3) == 'l'){
-							porB->OUTCLR.reg = D00;
-							}
-							else if(*(arrayPtr+3) == 'H' || *(arrayPtr+3) == 'h'){
-							porB->OUTSET.reg = D00;
-							}
-							break;
-					
-							case 1:
-							if(*(arrayPtr+3) == 'L' || *(arrayPtr+3) == 'l'){
-							porB->OUTCLR.reg = D01;
-							}
-							else if(*(arrayPtr+3) == 'H' || *(arrayPtr+3) == 'h'){
-							porB->OUTSET.reg = D01;
-							}
-							break;
-					
-							case 2:
-							if(*(arrayPtr+3) == 'L' || *(arrayPtr+3) == 'l'){
-							porB->OUTCLR.reg = D02;
-							}
-							else if(*(arrayPtr+3) == 'H' || *(arrayPtr+3) == 'h'){
-							porB->OUTSET.reg = D02;
-							}
-							break;
-					
-							case 3:
-							if(*(arrayPtr+3) == 'L' || *(arrayPtr+3) == 'l'){
-							porB->OUTCLR.reg = D03;
-							}
-							else if(*(arrayPtr+3) == 'H' || *(arrayPtr+3) == 'h'){
-							porB->OUTSET.reg = D03;
-							}
-							break;
-					
-							case 4:
-							break;
-							case 5:
-							break;
-							case 6:
-							break;
-							case 7:
-							break;
-							case 8:
-							break;
-							case 9:
-							break;
-							case 10:
-							break;
-							case 11:
-							break;
-							case 12:
-							break;
-							case 13:
-							break;
-							case 14:
-							break;
-							case 15:
-							break;
-					
-							default:
-							break;
-						}
-					}
-				}
+				portControl();
 			}
 		
-			//else if((receiveChar == 'a') || (receiveChar == 'A')){	//analog stuff
-			//writeUart("\n\nana\n");
-			//}
+			else if(((*arrayPtr == 'd') || (*arrayPtr == 'D')) && (receiveCount = 5)){	//analog stuff
+				//writeUart(arrayPtr);
+				receiveCount = 0;
+				receiveKey = 0;
+				dacSelect();
+			}
 		
 			else{	//invalid key press, reset array 
 				receiveCount = 0;
@@ -162,10 +105,12 @@ void clockSetup(void){
 	
 	//channel 7, SERCOM0
 	GCLK->PCHCTRL[7].bit.CHEN = 0;	//disable for safety first
-	GCLK->PCHCTRL[7].reg = GCLK_PCHCTRL_CHEN | GCLK_PCHCTRL_GEN_GCLK0;
+	GCLK->PCHCTRL[7].reg = GCLK_PCHCTRL_CHEN | GCLK_PCHCTRL_GEN_GCLK0;	//SERCOM0
+	GCLK->PCHCTRL[36].reg = GCLK_PCHCTRL_CHEN | GCLK_PCHCTRL_GEN_GCLK0;	//SERCOM6
 	
 	MCLK->CPUDIV.reg = 1;	//divide by 1
-	MCLK->APBAMASK.reg |= MCLK_APBAMASK_SERCOM0;	//do not mask sercom0
+	MCLK->APBAMASK.reg |= MCLK_APBAMASK_SERCOM0;	//unmask sercom0
+	MCLK->APBDMASK.reg |= MCLK_APBDMASK_SERCOM6;	//unmask sercom6
 	
 }
 
@@ -176,16 +121,28 @@ void portSetup(void){
 	PortGroup *porC = &(por->Group[2]);
 	PortGroup *porD = &(por->Group[3]);
 	
-	///for SERCOM0
-	porA->PMUX[2].bit.PMUXE = 3;
-	porA->PINCFG[4].bit.PMUXEN = 1;
+	///SERCOM0
+	porA->PMUX[2].bit.PMUXE = 3;	//PA04 pad0
+	porA->PINCFG[4].bit.PMUXEN = 1;	//PA05 pad1
 	porA->PMUX[2].bit.PMUXO = 3;
 	porA->PINCFG[5].bit.PMUXEN = 1;
-
+	
+	///SERCOM6
+	porC->PMUX[2].bit.PMUXE = 2;	//PC04 pad0
+	porC->PMUX[2].bit.PMUXO = 2;	//PC05 pad1
+	porC->PMUX[3].bit.PMUXE = 2;	//PC06 pad2
+	porC->PINCFG[4].bit.PMUXEN = 1;
+	porC->PINCFG[5].bit.PMUXEN = 1;
+	porC->PINCFG[6].bit.PMUXEN = 1;
+	porC->DIRSET.reg |= PORT_PC07;	//SS0 for 1st DAC
+	//porC->DIRSET.reg |= PORT_PC07;	//SS1 for 2nd DAC
+	porC->OUTSET.reg |= PORT_PC07;	//initialize SS0 high
+	//porC->OUTSET.reg |= PORT_PC07	//initialize SS1 high
+	
 	porB->DIRSET.reg = D00 | D01 | D02 | D03;	//digital outputs
 }
 
-void sercom_0_Setup(void){
+void sercom_0_Setup(void){	//USART
 	Sercom *ser = SERCOM0;
 	SercomUsart *uart = &(ser->USART);
 	uart->CTRLA.reg = 0;	//enable protected regs
@@ -204,10 +161,38 @@ void sercom_0_Setup(void){
 	while(uart->SYNCBUSY.reg){}
 	uart->BAUD.reg = 55470;	//for fbaud 9600 at 1Mhz fref
 	uart->INTENSET.bit.RXC = 1;	//receive complete interr
-	NVIC->ISER[1] |= 1<<16;	//enable sercom0 int
+	NVIC->ISER[1] |= 1<<16;	//enable sercom0 RXC int
 	uart->CTRLA.reg |= 1<<1;	//enable
 	while(uart->SYNCBUSY.reg){}
-	//NVIC->ISER[1] = NVIC_EnableIRQ
+}
+
+void sercom_6_Setup(void){	//SPI
+	Sercom *ser = SERCOM6;
+	SercomSpi *spi = &(ser->SPI);
+	spi->CTRLA.reg = 0<<1;	//disable first
+	while(spi->SYNCBUSY.reg){}	
+	spi->CTRLA.bit.DORD = 0;	//MSB first needed for AD5308
+	//spi->CTRLA.bit.DORD = 1;	//LSB first needed for AD5308
+	spi->CTRLA.bit.DOPO = 0;	//DO=pad0 PC04, SCK=pad1 PC05, SS=pad2 PC06
+	spi->CTRLA.bit.FORM = 0;	//SPI frame form
+	spi->CTRLA.bit.MODE = 3;	//master mode
+	spi->CTRLB.bit.MSSEN = 0;	//software controlled SS
+	spi->CTRLB.bit.CHSIZE = 0;	//8 bit char size
+	while(spi->SYNCBUSY.reg){}
+	//spi->BAUD.reg = 55470;	//9600bps at 1MHz
+	spi->BAUD.reg = 51;	//9600bps at 1MHz
+	spi->INTENSET.bit.TXC = 1;	//transmit complete
+	//NVIC->ISER[2] |= 1<<7;	//enable sercom6 TXC int
+	spi->CTRLA.reg |= 1<<1;	//enable
+	while(spi->SYNCBUSY.reg){}	
+	
+}
+
+void SERCOM6_1_Handler(void){
+		//pull SS up again and end transaction
+Sercom *ser = SERCOM6;
+SercomSpi *spi = &(ser->SPI);
+spi->INTFLAG.bit.TXC = 1;
 }
 
 void SERCOM0_2_Handler(void){	//for recieving 
@@ -223,11 +208,170 @@ void SERCOM0_2_Handler(void){	//for recieving
 void writeUart(char *a){
 	Sercom *ser = SERCOM0;
 	SercomUsart *uart = &(ser->USART);
-	while(*a != '#'){
-		while(!(uart->INTFLAG.bit.DRE)){}
-		uart->DATA.reg = *a++;
-		while((uart->INTFLAG.bit.TXC)==0){}	// waiting for transmit to complete
+	if(receiveCount == 1){
+		while(*a != '#'){
+			while(!(uart->INTFLAG.bit.DRE)){}
+			uart->DATA.reg = *a++;
+			while((uart->INTFLAG.bit.TXC)==0){}	// waiting for transmit to complete
+		}
 	}
+	
+	//if((receiveCount == 4) || (receiveCount == 5)){
+		//volatile int j = receiveCount;
+		//while(j != 0){
+			//while(!(uart->INTFLAG.bit.DRE)){}
+			//uart->DATA.reg = *a++;
+			//while((uart->INTFLAG.bit.TXC)==0){}	// waiting for transmit to complete
+			//j--;
+		//}
+	//}
+	//uart->DATA.reg = 10;
+}
+
+void portControl(void){
+	
+		Port *por = PORT;
+		PortGroup *porB = &(por->Group[1]);
+		
+	if((*(arrayPtr+1) >= 48) && (*(arrayPtr+1) <= 57)){	//looking for number keys only
+		if((*(arrayPtr+2) >= 48) && (*(arrayPtr+2) <= 57)){	//looking for number keys only
+			volatile int zone = (*(arrayPtr+1) - 48) * 10;
+			zone += *(arrayPtr+2) - 48;
+			
+			switch(zone){
+				case 0:
+				if(*(arrayPtr+3) == 'L' || *(arrayPtr+3) == 'l'){
+					porB->OUTCLR.reg = D00;
+				}
+				else if(*(arrayPtr+3) == 'H' || *(arrayPtr+3) == 'h'){
+					porB->OUTSET.reg = D00;
+				}
+				break;
+				
+				case 1:
+				if(*(arrayPtr+3) == 'L' || *(arrayPtr+3) == 'l'){
+					porB->OUTCLR.reg = D01;
+				}
+				else if(*(arrayPtr+3) == 'H' || *(arrayPtr+3) == 'h'){
+					porB->OUTSET.reg = D01;
+				}
+				break;
+				
+				case 2:
+				if(*(arrayPtr+3) == 'L' || *(arrayPtr+3) == 'l'){
+					porB->OUTCLR.reg = D02;
+				}
+				else if(*(arrayPtr+3) == 'H' || *(arrayPtr+3) == 'h'){
+					porB->OUTSET.reg = D02;
+				}
+				break;
+				
+				case 3:
+				if(*(arrayPtr+3) == 'L' || *(arrayPtr+3) == 'l'){
+					porB->OUTCLR.reg = D03;
+				}
+				else if(*(arrayPtr+3) == 'H' || *(arrayPtr+3) == 'h'){
+					porB->OUTSET.reg = D03;
+				}
+				break;
+				
+				case 4:
+				break;
+				case 5:
+				break;
+				case 6:
+				break;
+				case 7:
+				break;
+				case 8:
+				break;
+				case 9:
+				break;
+				case 10:
+				break;
+				case 11:
+				break;
+				case 12:
+				break;
+				case 13:
+				break;
+				case 14:
+				break;
+				case 15:
+				break;
+				
+				default:
+				break;
+			}
+		}
+	}
+}
+
+void dacSelect(void){
+	Port *por = PORT;
+	PortGroup *porB = &(por->Group[1]);
+		if((*(arrayPtr+1) >= 48) && (*(arrayPtr+1) <= 57)){	//looking for number keys only
+		if((*(arrayPtr+2) >= 48) && (*(arrayPtr+2) <= 57)){	//looking for number keys only
+			volatile int zone = (*(arrayPtr+1) - 48) * 10;
+			zone += *(arrayPtr+2) - 48;
+			if(zone <= 7){
+				arrDAC[0] = 2 * zone;
+				slaveSel = 0;
+			}
+			else{
+				arrDAC[0]= 2 * (zone - 8);
+				slaveSel = 1;
+			}
+			dacValue();
+			
+		}
+	}
+}
+
+void dacValue(void){
+	if((*(arrayPtr+1) >= 48) && (*(arrayPtr+1) <= 57)){	//looking for number keys only
+		if((*(arrayPtr+2) >= 48) && (*(arrayPtr+2) <= 57)){	//looking for number keys only
+			if((*(arrayPtr+3) >= 48) && (*(arrayPtr+3) <= 57)){	//looking for number keys only
+				volatile int value = (*(arrayPtr+3) - 48) * 100;
+				value += (*(arrayPtr+4) - 48) * 10;
+				value += *(arrayPtr+5) - 48;
+				arrDAC[1] = value;
+				//arrDACptr = arrDAC;
+				writeSPI(arrDACptr);
+			}
+		}
+	}
+	
+}
+
+void writeSPI(char *a){
+	int SS;	//which dac 
+	volatile static int j = 0;	//counter
+	Sercom *ser = SERCOM6;
+	SercomSpi *spi = &(ser->SPI);
+	
+	if(slaveSel == 0){
+		//SS = SS0;
+	}
+	else if(slaveSel == 1){
+		//SS = SS1;
+	}
+	while( j<2 ){
+		spi->DATA.reg = arrDAC[j];
+		//spi->DATA.reg = 0xab;
+		while(spi->INTFLAG.bit.DRE == 0){}	//wait for DATA reg to be empty
+		while(spi->INTFLAG.bit.TXC == 0){}	//wait for tx to finish
+		j++;	//increment counter
+		//if(j == 2){
+			//spi->INTENCLR.bit.DRE = 1;	//clear the DRE flag
+			//Port *por = PORT;
+			//PortGroup *porA = &(por->Group[0]);
+			//porA->OUTCLR.reg = SS;	//pull SS down
+			//wait(1);
+			//porA->OUTSET.reg = SS;	//pull SS up
+		//}
+	}
+	j = 0;
 }
 
 void wait(volatile int d){
@@ -236,4 +380,16 @@ void wait(volatile int d){
 		count++;
 	}
 }
+
+
+
+
+
+
+
+
+
+
+
+
 
