@@ -1,0 +1,11 @@
+#ifndef RTDS_H_INCLUDED
+#define RTDS_H_INCLUDED
+
+/* Prototypes for the functions */
+
+void rtdPortSetup(void);
+void tempADC_Setup(void);
+void tempTC_Setup(void);
+
+
+#endif
