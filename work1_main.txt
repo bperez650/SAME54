@@ -1,5 +1,6 @@
 /*
  * i changed double to float for temp calculation and eliminated the timer also for temp calculation
+ * changed the menu, added row and deleted the '#' should not need it, so also deleted stuff in writeUart accordingly
  *
  * Must change digital to initialize all ports 
  * Must change DAC stuff for different IC and allow for SS of 2 seperate ones
@@ -36,17 +37,18 @@ void dacValue(void);
 void writeSPI(char *a);
 //void tempADC_Setup(void);
 //void tempTC_Setup(void);
-void convert(int a);
+void convert(int *a);
 
 /************Terminal menu do not change or mess with ***************/
-volatile char menuArray[7][63] = {	//DO NOT FUCK WITH THIS 
+volatile char menuArray[8][63] = {	//DO NOT FUCK WITH THIS 
 									{"\n\n_________________________________________________________  \n\n"},
 									{"                Artium Technologies, Inc Gen 3.0 Rev 0.0      \n"},
 									{"_________________________________________________________    \n\n"},
 									{"M=> Show Menu                                                 \n"},
 									{"DxxXXX D=Analog Out x=Cannel Number 0 to 15 XXX=000 to 255    \n"},
 									{"KxxX K=Port K xx-Bit 0 to 15 X= State H or L                  \n"},
-									{"T=> Show Current Temperature Status\n\n#                        "},
+									{"T=> Show Current Board Temperature Status\n\n                   "},
+									{"C=> Show Current RTD Temperature Status\n\n                     "},
 									};//DO NOT FUCK WITH THIS 
 									
 									
@@ -72,8 +74,9 @@ int main(void){
 	portSetup();
 	sercom_0_Setup();	//USART
 	sercom_6_Setup();	//SPI
-	tempADC_Setup();
-	//tempTC_Setup();
+	ADC_0_Setup();
+	ADC_1_Setup();
+	rtd_TC_Setup();
 	rtdPortSetup();
 	
 	/* Writes "start" to terminal upon reset */
@@ -102,12 +105,23 @@ int main(void){
 			
 			/* Temperature selection */
 			else if(((*arrayPtr == 't') || (*arrayPtr == 'T')) && (receiveCount = 1)){	
-				Tc *tc = TC4;
-				TcCount16 *tc4 = &tc->COUNT16;
 				ADC1->INPUTCTRL.reg = ADC_INPUTCTRL_MUXNEG_GND | ADC_INPUTCTRL_MUXPOS_AIN6;	//AIN6=PB04
 				while (ADC1->SYNCBUSY.bit.INPUTCTRL){}	//wait for sync to complete
 				ADC1->SWTRIG.reg = 1;	//trigger ADC to start conversion	//CHANGED
-				while(tc4->SYNCBUSY.bit.CTRLB){}	//wait for sync to complete
+				while(ADC1->INTFLAG.bit.RESRDY == 0){}	//wait for conversion
+				volatile int ADC_result = ADC1->RESULT.reg;	//read ADC conversion result
+				volatile float result = (((float)ADC_result / 255) * 5);	//CHANGED float got changed from double
+				result = (result - 1.375)/ .0225;
+				int temp = (int)result;
+				int *temp1 = &temp;
+				convert(temp1);
+				receiveCount = 0;
+				receiveKey = 0;
+			}
+			
+			/* RTD selection */
+			else if(((*arrayPtr == 'c') || (*arrayPtr == 'C')) && (receiveCount = 1)){
+				displayRTDs();
 				receiveCount = 0;
 				receiveKey = 0;
 			}
@@ -264,22 +278,13 @@ void SERCOM6_1_Handler(void){	//obsolete right now
 void writeUart(char *a){
 	Sercom *ser = SERCOM0;
 	SercomUsart *uart = &(ser->USART);
-	if(receiveCount == 1){
-		while(*a != '#'){
-			while(!(uart->INTFLAG.bit.DRE)){}
-			uart->DATA.reg = *a++;
-			while((uart->INTFLAG.bit.TXC)==0){}	// waiting for transmit to complete
-		}
-	}
 	
-	else{
-		while(*a){
-			while(!(uart->INTFLAG.bit.DRE)){}
-			uart->DATA.reg = *a++;
-			while((uart->INTFLAG.bit.TXC)==0){}	// waiting for transmit to complete
+	while(*a){
+		while(!(uart->INTFLAG.bit.DRE)){}
+		uart->DATA.reg = *a++;
+		while((uart->INTFLAG.bit.TXC)==0){}	// waiting for transmit to complete
 		}
 		uart->DATA.reg = 10;
-	}
 }
 
 /* Selects digital port and gives it value */
@@ -450,15 +455,17 @@ void wait(volatile int d){
 }
 
 /* Converts an int into a char so that it can be displayed*/
-void convert(int a){
+
+void convert(int *a){
+	int y = *a;
 	int i = 100;   //divisor
 	int j = 0;  //array counter
 	int m = 1;  //counter
 	int n = 100;    //increment to divisor
 
 	while(j <= 3){
-		int b = a % i;
-		if(b == a) {
+		int b = y % i;
+		if(b == y) {
 			int p = (m-1);
 			switch(p) {
 				case 0:
@@ -495,7 +502,7 @@ void convert(int a){
 				convertArray[j++] = 'A';
 				break;
 			}
-			a = a - (n*(m-1));
+			y = y - (n*(m-1));
 			m = 1;
 
 			if(j == 1){
@@ -515,7 +522,8 @@ void convert(int a){
 	}
 	convertArray[3] = 0;	//force pointer to end here
 	writeUart(convertArrayPtr);
-}
+}	
+
 
 
 
